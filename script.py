@@ -164,6 +164,8 @@ class DDPM(nn.Module):
         # mask: first half unconditional, second half conditional
         mask = torch.cat([torch.zeros(B), torch.ones(B)], dim=0).to(self.device)
         c = c_flat.repeat(2,1)
+        x_seq = []
+        x_seq.append(x)
         for i in reversed(range(self.T)):
             t_norm = (torch.full((2*B,), i, device=self.device).float()/self.T).unsqueeze(1)
             x_in = x.repeat(2,1,1,1)
@@ -174,14 +176,16 @@ class DDPM(nn.Module):
             a_bar = self.alphas_bar[i]
             z = torch.randn_like(x) if i>0 else 0
             x = (1/torch.sqrt(a))*(x - (1-a)/torch.sqrt(1-a_bar)*eps) + torch.sqrt(self.betas[i])*z
-        return x
+            if i % 50 == 0:
+                x_seq.append(x)
+        return x, x_seq
 
 
 def train_mnist():
 
     # hardcoding these here
-    n_epoch = 100
-    batch_size = 8
+    n_epoch = 1000
+    batch_size =16
     n_T = 500 # 500
     device = "cuda:0"
     csv_file = '/home/yangyang/Projects/Conditional_Diffusion_MNIST/data/AlSiMgCu.txt'
@@ -189,7 +193,7 @@ def train_mnist():
     n_feat = 128 # 128 ok, 256 better (but slower)
     lrate = 1e-4
     save_model = False
-    save_dir = './data/diffusion_outputs2/'
+    save_dir = './data/diffusion_outputs3/'
     ws_test = [0.0, 0.5, 2.0] # strength of generative guidance
 
     unet = ContextUnet(in_ch=1, base_ch=128, cond_dim=n_classes)
@@ -197,7 +201,7 @@ def train_mnist():
     ddpm.to(device)
 
     # optionally load a model
-    # ddpm.load_state_dict(torch.load("./data/diffusion_outputs/ddpm_unet01_mnist_9.pth"))
+    ddpm.load_state_dict(torch.load("data/diffusion_outputs2/model_99.pth"))
 
 
     dataset = Dataset(csv_file=csv_file,
@@ -245,7 +249,7 @@ def train_mnist():
                         c_i = c_sample.to(device)
                         c_i = c_i.view(c_i.size(0), -1).float()
                         break
-                    x_gen = ddpm.sample(n_sample, (1, 128, 128), c_i, guide_w=w)
+                    x_gen,_ = ddpm.sample(n_sample, (1, 128, 128), c_i, guide_w=w)
 
                     # append some real images at bottom, order by class also
                     # x_real = torch.Tensor(x_gen.shape).to(device)
@@ -261,7 +265,7 @@ def train_mnist():
                     with open(save_dir + "generated_images.txt", "a") as f:
                         for name in img_name:
                             f.write(name + "\n")
-                    grid = make_grid(x_gen*-1 + 1, nrow=10)
+                    grid = make_grid(x_gen, nrow=10)
                     save_image(grid, save_dir + f"image_ep{ep}_w{w}.png")
                     print('saved image at ' + save_dir + f"image_ep{ep}_w{w}.png")
 

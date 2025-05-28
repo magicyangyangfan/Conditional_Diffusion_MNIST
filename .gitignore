@@ -2,3 +2,4 @@ __pycache__/
 results/
 data/
 matQuery/database/
+generated_images/

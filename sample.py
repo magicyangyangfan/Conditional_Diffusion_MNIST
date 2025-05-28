@@ -2,7 +2,7 @@ from script import DDPM, ContextUnet, ddpm_schedules
 import torch
 from torchvision.utils import save_image, make_grid
 import os
-import numpy as np
+from phasePrediction2 import phasePredictionLite
 
 def load_ddpm_model(model_path, device, n_classes=7, n_T=500, betas=(1e-4, 0.02)):
     """
@@ -31,7 +31,7 @@ def load_ddpm_model(model_path, device, n_classes=7, n_T=500, betas=(1e-4, 0.02)
     print(f"Model loaded from {model_path}")
     return ddpm
 
-def sample_images(ddpm, n_samples, image_size, condition, guide_weight, save_dir):
+def sample_images(ddpm, n_samples, image_size, condition, guide_weight, save_dir, save_seq=False):
     """
     Generate and save sample images using the DDPM model.
 
@@ -46,15 +46,20 @@ def sample_images(ddpm, n_samples, image_size, condition, guide_weight, save_dir
     ddpm.eval()
     with torch.no_grad():
         # Generate samples
-        generated_images = ddpm.sample(n_samples, image_size, condition, guide_w=guide_weight)
+        generated_images, generated_images_seq = ddpm.sample(n_samples, image_size, condition, guide_w=guide_weight)
         
         # Create a grid of generated images
         # grid = make_grid(generated_images * -1 + 1, nrow=10)
-        grid = make_grid(generated_images, nrow=10)
-        
+        if save_seq:
+            print(f"Generated images shape: {generated_images.shape}")
+            concatenated_images = torch.cat(generated_images_seq, dim=0)  # Shape: [num_images, 1, 128, 128]
+            print(f"Concatenated images shape: {concatenated_images.shape}")
+            grid = make_grid(concatenated_images, nrow=10)
+        else:
+            grid = make_grid(generated_images, nrow=10)
         # Save the grid as an image
         os.makedirs(save_dir, exist_ok=True)
-        save_path = os.path.join(save_dir, "generated_samples_A356_CR50_M.png")
+        save_path = os.path.join(save_dir, "imaginary.png")
         save_image(grid, save_path)
         print(f"Generated samples saved at {save_path}")
 
@@ -67,13 +72,25 @@ if __name__ == "__main__":
     n_classes = 7
     guide_weight = 0.5
     save_dir = "./generated_images"
-    
+    c_i = []
+    modification = 0
+    cooling_rate = 0.4
+    composition = {"Si": 0.05, "Cu": 0.0125, "Mg": 0.005, "Al": 0.9325}  # Example composition
+    phasePredictor = phasePredictionLite('./matQuery/database/AlSiMgCuScheil.pkl')
+    save_seq = True
+    c_i.append(modification)
+    c_i.append(cooling_rate)
+    res= phasePredictor.predict(composition)
+    c_i.extend([res[phase] for phase in res.keys() if phase not in ["FCC_A1", "S_PHASE", "T_PHASE"]])
+    print(f"Conditioning vector: {c_i}")
+    assert len(c_i) == n_classes, f"Expected {n_classes} classes, got {len(c_i)}"
+    c_i = torch.tensor(c_i, dtype=torch.float32).view(1, -1).to(device)
     # Example conditioning vector (random for demonstration)
-    # condition = torch.randn(n_samples, n_classes).to(device)
-    c_i = torch.tensor([1, 0.5, 0, 0, 0.0715, 0.0085, 0.001], dtype=torch.float32).view(1, -1).to(device)
+    # c_i = torch.randn(n_samples, n_classes).to(device)
+    # c_i = torch.tensor([1, 0.5, 0, 0, 0.0715, 0.0085, 0.001], dtype=torch.float32).view(1, -1).to(device)
     
     # Load the DDPM model
     ddpm = load_ddpm_model(model_path, device, n_classes=n_classes)
     
     # Generate and save images
-    sample_images(ddpm, n_samples, image_size, c_i, guide_weight, save_dir)
+    sample_images(ddpm, n_samples, image_size, c_i, guide_weight, save_dir, save_seq)
